@@ -1,10 +1,16 @@
 #include "evos/analyzer.hpp"
+#include "evos/live_capture.hpp"
+#include "evos/metrics.hpp"
+#include "evos/packet_decoder.hpp"
+#include "evos/pcap_reader.hpp"
 
 #include <charconv>
+#include <csignal>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -12,14 +18,25 @@
 
 namespace {
 
+volatile std::sig_atomic_t stop_requested = 0;
+
+void request_stop(int) {
+    stop_requested = 1;
+}
+
 void print_usage(std::ostream& output) {
-    output << "Uso: evos-analyzer --input <arquivo.csv|-> [opcoes]\n"
+    output << "Uso: evos-analyzer (--input <arquivo.csv|-> | --pcap <arquivo.pcap|-> | --interface <nome>) [opcoes]\n"
            << "\n"
            << "CSV: timestamp_unix_seconds,source_ip,destination_ip,protocol,packets,bytes\n"
            << "Os eventos devem estar ordenados pelo timestamp. Uma linha de cabecalho e aceita.\n"
+           << "PCAP: formato classico, link Ethernet; decodifica IPv4, IPv6 e VLAN.\n"
+           << "Captura ao vivo: AF_PACKET/TPACKET_V3 passivo; requer CAP_NET_RAW e encerra com Ctrl+C.\n"
            << "\n"
            << "Opcoes:\n"
            << "  --input <caminho>       Arquivo CSV ou '-' para stdin\n"
+           << "  --pcap <caminho>        Captura PCAP offline ou '-' para stdin\n"
+           << "  --interface <nome>      Captura ao vivo na interface de rede\n"
+           << "  --metrics-address <ip:porta>  Exportador Prometheus (ex: 127.0.0.1:9108)\n"
            << "  --window-seconds <n>    Duracao da janela (padrao: 10)\n"
            << "  --max-packets <n>       Limite por origem/destino/janela (padrao: 10000)\n"
            << "  --max-bytes <n>         Limite por origem/destino/janela (padrao: 10000000)\n"
@@ -51,6 +68,9 @@ double parse_sigma(std::string_view value) {
 
 struct Options {
     std::string input_path;
+    std::string pcap_path;
+    std::string interface_name;
+    std::string metrics_address;
     evos::Thresholds thresholds;
 };
 
@@ -68,6 +88,12 @@ Options parse_options(int argc, char* argv[]) {
         const std::string value(argv[++index]);
         if (argument == "--input") {
             options.input_path = value;
+        } else if (argument == "--pcap") {
+            options.pcap_path = value;
+        } else if (argument == "--interface") {
+            options.interface_name = value;
+        } else if (argument == "--metrics-address") {
+            options.metrics_address = value;
         } else if (argument == "--window-seconds") {
             options.thresholds.window_seconds = parse_option_value(value, argument);
         } else if (argument == "--max-packets") {
@@ -86,14 +112,18 @@ Options parse_options(int argc, char* argv[]) {
             throw std::invalid_argument("unknown option: " + argument);
         }
     }
-    if (options.input_path.empty()) {
-        throw std::invalid_argument("--input is required");
+    const auto input_modes = static_cast<unsigned int>(!options.input_path.empty()) +
+        static_cast<unsigned int>(!options.pcap_path.empty()) +
+        static_cast<unsigned int>(!options.interface_name.empty());
+    if (input_modes != 1) {
+        throw std::invalid_argument("provide exactly one input mode: --input, --pcap, or --interface");
     }
     return options;
 }
 
-void write_alerts(const std::vector<evos::Alert>& alerts) {
+void write_alerts(const std::vector<evos::Alert>& alerts, evos::Metrics& metrics) {
     for (const auto& alert : alerts) {
+        metrics.observe_alert(alert);
         std::cout << evos::alert_to_json(alert) << '\n';
     }
 }
@@ -103,41 +133,84 @@ void write_alerts(const std::vector<evos::Alert>& alerts) {
 int main(int argc, char* argv[]) {
     try {
         const auto options = parse_options(argc, argv);
+        const bool reading_pcap = !options.pcap_path.empty();
+        const bool capturing_live = !options.interface_name.empty();
+        const auto& input_path = reading_pcap ? options.pcap_path : options.input_path;
         std::ifstream file;
         std::istream* input = &std::cin;
-        if (options.input_path != "-") {
-            file.open(options.input_path);
+        if (!capturing_live && input_path != "-") {
+            file.open(input_path, reading_pcap ? std::ios::binary : std::ios::in);
             if (!file) {
-                throw std::runtime_error("could not open input file: " + options.input_path);
+                throw std::runtime_error("could not open input file: " + input_path);
             }
             input = &file;
         }
 
         evos::Analyzer analyzer(options.thresholds);
-        std::string line;
-        std::size_t line_number = 0;
-        bool first_record = true;
-        while (std::getline(*input, line)) {
-            ++line_number;
-            if (line.empty()) {
-                continue;
+        evos::Metrics metrics;
+        std::unique_ptr<evos::MetricsServer> metrics_server;
+        if (!options.metrics_address.empty()) {
+            metrics_server = std::make_unique<evos::MetricsServer>(options.metrics_address, metrics);
+        }
+        if (capturing_live) {
+            std::signal(SIGINT, request_stop);
+            std::signal(SIGTERM, request_stop);
+            // AF_PACKET observes packets without changing the traffic path.
+            metrics.set_capture_active(true);
+            try {
+                evos::capture_live_packets(options.interface_name, analyzer, stop_requested,
+                    [&metrics](const evos::TrafficEvent& event) {
+                        metrics.observe_event(event);
+                    },
+                [&metrics](const evos::Alert& alert) {
+                    metrics.observe_alert(alert);
+                    std::cout << evos::alert_to_json(alert) << '\n';
+                });
+            } catch (...) {
+                metrics.set_capture_active(false);
+                throw;
             }
-            if (first_record) {
-                first_record = false;
-                if (line == "timestamp_unix_seconds,source_ip,destination_ip,protocol,packets,bytes") {
-                    continue;
+            metrics.set_capture_active(false);
+        } else if (reading_pcap) {
+            evos::PcapReader reader(*input);
+            evos::CapturedPacket packet{};
+            while (reader.next(packet)) {
+                // Convert decoded frames to the same event stream used by CSV input.
+                const auto event = evos::decode_ethernet_packet(
+                    packet.bytes, packet.timestamp_unix_seconds, packet.wire_length);
+                if (event.has_value()) {
+                    metrics.observe_event(*event);
+                    write_alerts(analyzer.consume(*event), metrics);
                 }
             }
-            try {
-                write_alerts(analyzer.consume(evos::parse_csv_event(line)));
-            } catch (const std::exception& error) {
-                throw std::runtime_error("line " + std::to_string(line_number) + ": " + error.what());
+        } else {
+            std::string line;
+            std::size_t line_number = 0;
+            bool first_record = true;
+            while (std::getline(*input, line)) {
+                ++line_number;
+                if (line.empty()) {
+                    continue;
+                }
+                if (first_record) {
+                    first_record = false;
+                    if (line == "timestamp_unix_seconds,source_ip,destination_ip,protocol,packets,bytes") {
+                        continue;
+                    }
+                }
+                try {
+                    const auto event = evos::parse_csv_event(line);
+                    metrics.observe_event(event);
+                    write_alerts(analyzer.consume(event), metrics);
+                } catch (const std::exception& error) {
+                    throw std::runtime_error("line " + std::to_string(line_number) + ": " + error.what());
+                }
             }
         }
-        if (input->bad()) {
+        if (!capturing_live && input->bad()) {
             throw std::runtime_error("error while reading input");
         }
-        write_alerts(analyzer.finish());
+        write_alerts(analyzer.finish(), metrics);
     } catch (const std::exception& error) {
         std::cerr << "Error: " << error.what() << '\n';
         print_usage(std::cerr);

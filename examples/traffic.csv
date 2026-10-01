@@ -1,0 +1,4 @@
+timestamp_unix_seconds,source_ip,destination_ip,protocol,packets,bytes
+1000,198.51.100.24,203.0.113.10,TCP,6500,4000000
+1005,198.51.100.24,203.0.113.10,TCP,4000,7000000
+1010,198.51.100.30,203.0.113.10,UDP,20,12000

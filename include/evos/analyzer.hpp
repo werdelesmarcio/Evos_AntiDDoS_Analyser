@@ -8,6 +8,7 @@
 
 namespace evos {
 
+// Evento de trafego normalizado, independente da fonte de entrada.
 struct TrafficEvent {
     std::uint64_t timestamp_unix_seconds;
     std::string source_ip;
@@ -17,6 +18,7 @@ struct TrafficEvent {
     std::uint64_t bytes;
 };
 
+// Limites por fluxo/destino e parametros da janela e do baseline.
 struct Thresholds {
     std::uint64_t window_seconds = 10;
     std::uint64_t max_packets = 10000;
@@ -27,11 +29,13 @@ struct Thresholds {
     double baseline_sigma = 3.0;
 };
 
+// Define se um alerta se aplica a um fluxo ou a um destino agregado.
 enum class AlertScope {
     Source,
     Destination,
 };
 
+// Resultado da avaliacao de uma janela de trafego.
 struct Alert {
     std::uint64_t window_start_unix_seconds;
     std::uint64_t window_seconds;
@@ -43,11 +47,15 @@ struct Alert {
     std::vector<std::string> reasons;
 };
 
+// Agrega eventos por janela e emite alertas por fluxo, destino e baseline.
 class Analyzer {
 public:
+    // Cria o analisador e rejeita limites inconsistentes.
     explicit Analyzer(Thresholds thresholds);
 
+    // Acumula um evento e retorna alertas de janelas que acabaram de fechar.
     std::vector<Alert> consume(const TrafficEvent& event);
+    // Fecha a ultima janela; chamadas seguintes nao repetem alertas.
     std::vector<Alert> finish();
 
 private:
@@ -79,7 +87,9 @@ private:
     std::map<std::string, BaselineStats> baseline_by_destination_;
 };
 
+// Converte uma linha CSV no formato de TrafficEvent.
 TrafficEvent parse_csv_event(const std::string& line);
+// Serializa um alerta como uma linha JSON.
 std::string alert_to_json(const Alert& alert);
 
 }  // namespace evos

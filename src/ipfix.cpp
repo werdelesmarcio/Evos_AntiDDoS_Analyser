@@ -13,6 +13,7 @@ namespace {
 constexpr std::uint16_t variable_length = 65535;
 constexpr std::uint16_t minimum_template_id = 256;
 
+// Le um inteiro de 16 bits em ordem de rede com verificacao de limites.
 std::uint16_t read_u16(std::span<const std::uint8_t> bytes, std::size_t offset) {
     if (offset > bytes.size() || bytes.size() - offset < 2) {
         throw std::invalid_argument("truncated IPFIX 16-bit value");
@@ -20,6 +21,7 @@ std::uint16_t read_u16(std::span<const std::uint8_t> bytes, std::size_t offset) 
     return static_cast<std::uint16_t>((bytes[offset] << 8) | bytes[offset + 1]);
 }
 
+// Le um inteiro de 32 bits em ordem de rede com verificacao de limites.
 std::uint32_t read_u32(std::span<const std::uint8_t> bytes, std::size_t offset) {
     if (offset > bytes.size() || bytes.size() - offset < 4) {
         throw std::invalid_argument("truncated IPFIX 32-bit value");
@@ -30,6 +32,7 @@ std::uint32_t read_u32(std::span<const std::uint8_t> bytes, std::size_t offset) 
         static_cast<std::uint32_t>(bytes[offset + 3]);
 }
 
+// Converte contadores IPFIX de largura variavel para uint64.
 std::uint64_t read_unsigned(std::span<const std::uint8_t> bytes) {
     if (bytes.empty() || bytes.size() > sizeof(std::uint64_t)) {
         throw std::invalid_argument("unsupported IPFIX counter width");
@@ -41,10 +44,12 @@ std::uint64_t read_unsigned(std::span<const std::uint8_t> bytes) {
     return value;
 }
 
+// Detecta bytes zero usados como preenchimento no final de um Set.
 bool all_zero(std::span<const std::uint8_t> bytes) {
     return std::all_of(bytes.begin(), bytes.end(), [](std::uint8_t byte) { return byte == 0; });
 }
 
+// Formata um endereco binario IPv4 ou IPv6 em texto.
 std::string format_address(std::span<const std::uint8_t> bytes, int family) {
     const auto expected_size = family == AF_INET ? 4U : 16U;
     if (bytes.size() != expected_size) {
@@ -57,6 +62,7 @@ std::string format_address(std::span<const std::uint8_t> bytes, int family) {
     return output.data();
 }
 
+// Traduz protocolos comuns e preserva o numero para os demais.
 std::string protocol_name(std::span<const std::uint8_t> bytes) {
     const auto number = read_unsigned(bytes);
     switch (number) {
@@ -74,6 +80,7 @@ struct RecordField {
     bool enterprise;
 };
 
+// Extrai um campo fixo ou prefixado por comprimento variavel do registro.
 bool next_field_value(
     std::span<const std::uint8_t> data,
     std::size_t& offset,
@@ -100,6 +107,7 @@ bool next_field_value(
 
 }  // namespace
 
+// Atualiza templates e converte Data Sets conhecidos em eventos de trafego.
 std::vector<TrafficEvent> IpfixDecoder::decode(
     std::span<const std::uint8_t> message,
     const std::string& exporter,

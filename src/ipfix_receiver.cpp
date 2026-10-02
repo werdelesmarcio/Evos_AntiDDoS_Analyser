@@ -19,6 +19,7 @@ namespace {
 
 class UdpListener {
 public:
+    // Vincula um socket UDP IPv4 a todas as interfaces na porta informada.
     explicit UdpListener(std::uint16_t port) {
         socket_fd_ = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
         if (socket_fd_ < 0) {
@@ -39,18 +40,21 @@ public:
     UdpListener(const UdpListener&) = delete;
     UdpListener& operator=(const UdpListener&) = delete;
 
+    // Fecha o socket ao sair do escopo.
     ~UdpListener() {
         if (socket_fd_ >= 0) {
             close(socket_fd_);
         }
     }
 
+    // Expõe o descritor para espera e leitura de datagramas.
     int descriptor() const noexcept { return socket_fd_; }
 
 private:
     int socket_fd_ = -1;
 };
 
+// Identifica o escopo do template pela origem do datagrama.
 std::string exporter_name(const sockaddr_in& address) {
     std::array<char, INET_ADDRSTRLEN> ip{};
     if (inet_ntop(AF_INET, &address.sin_addr, ip.data(), ip.size()) == nullptr) {
@@ -61,6 +65,7 @@ std::string exporter_name(const sockaddr_in& address) {
 
 }  // namespace
 
+// Recebe mensagens IPFIX, aplica os templates e encaminha eventos ao analisador.
 void receive_ipfix(
     std::uint16_t port,
     Analyzer& analyzer,

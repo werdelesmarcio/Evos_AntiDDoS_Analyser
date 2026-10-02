@@ -8,6 +8,7 @@ namespace {
 
 constexpr std::uint32_t maximum_snapshot_length = 16 * 1024 * 1024;
 
+// Le um inteiro de 16 bits na ordem de bytes declarada pelo arquivo.
 std::uint16_t read_u16(const std::uint8_t* bytes, bool little_endian) {
     if (little_endian) {
         return static_cast<std::uint16_t>(bytes[0]) |
@@ -17,6 +18,7 @@ std::uint16_t read_u16(const std::uint8_t* bytes, bool little_endian) {
         static_cast<std::uint16_t>(bytes[1]);
 }
 
+// Le um inteiro de 32 bits na ordem de bytes declarada pelo arquivo.
 std::uint32_t read_u32(const std::uint8_t* bytes, bool little_endian) {
     if (little_endian) {
         return static_cast<std::uint32_t>(bytes[0]) |

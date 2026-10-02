@@ -11,6 +11,7 @@
 namespace evos {
 namespace {
 
+// Converte um campo numerico decimal e rejeita valores incompletos ou invalidos.
 std::uint64_t parse_unsigned(std::string_view value, const char* field_name) {
     std::uint64_t result = 0;
     const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), result);
@@ -20,6 +21,7 @@ std::uint64_t parse_unsigned(std::string_view value, const char* field_name) {
     return result;
 }
 
+// Soma contadores sem permitir que o overflow silencioso corrompa alertas.
 void add_checked(std::uint64_t& total, std::uint64_t value, const char* field_name) {
     if (value > std::numeric_limits<std::uint64_t>::max() - total) {
         throw std::overflow_error(std::string(field_name) + " total overflow");
@@ -27,6 +29,7 @@ void add_checked(std::uint64_t& total, std::uint64_t value, const char* field_na
     total += value;
 }
 
+// Escapa caracteres de controle para manter a saida JSON valida.
 std::string escape_json(const std::string& value) {
     constexpr char hex[] = "0123456789abcdef";
     std::string escaped;
@@ -55,6 +58,7 @@ std::string escape_json(const std::string& value) {
 
 }  // namespace
 
+// Valida os limites antes de iniciar a agregacao.
 Analyzer::Analyzer(Thresholds thresholds) : thresholds_(thresholds) {
     if (thresholds_.window_seconds == 0 || thresholds_.max_packets == 0 || thresholds_.max_bytes == 0) {
         throw std::invalid_argument("window and thresholds must be greater than zero");
@@ -66,6 +70,7 @@ Analyzer::Analyzer(Thresholds thresholds) : thresholds_(thresholds) {
     }
 }
 
+// Agrega o evento na janela correspondente e fecha janelas anteriores quando necessario.
 std::vector<Alert> Analyzer::consume(const TrafficEvent& event) {
     if (finished_) {
         throw std::logic_error("cannot consume events after finish");
@@ -104,6 +109,7 @@ std::vector<Alert> Analyzer::consume(const TrafficEvent& event) {
     return alerts;
 }
 
+// Finaliza o processamento e fecha a ultima janela pendente.
 std::vector<Alert> Analyzer::finish() {
     if (finished_) {
         return {};
@@ -115,6 +121,7 @@ std::vector<Alert> Analyzer::finish() {
     return close_window();
 }
 
+// Avalia limites e baseline da janela, sem treinar o baseline com trafego alertado.
 std::vector<Alert> Analyzer::close_window() {
     std::vector<Alert> alerts;
     std::set<std::string> source_alerted_destinations;
@@ -184,6 +191,7 @@ std::vector<Alert> Analyzer::close_window() {
     return alerts;
 }
 
+// Atualiza media e variancia online sem armazenar amostras anteriores.
 void Analyzer::add_baseline_sample(BaselineStats& stats, std::uint64_t packets, std::uint64_t bytes) {
     if (stats.windows == std::numeric_limits<std::uint64_t>::max()) {
         throw std::overflow_error("baseline window count overflow");
@@ -200,6 +208,7 @@ void Analyzer::add_baseline_sample(BaselineStats& stats, std::uint64_t packets, 
     stats.bytes_m2 += byte_delta * (static_cast<long double>(bytes) - stats.mean_bytes);
 }
 
+// Incorpora janelas sem trafego ao baseline usando combinacao estatistica agregada.
 void Analyzer::add_empty_baseline_windows(std::uint64_t count) {
     for (auto& [destination_ip, stats] : baseline_by_destination_) {
         (void)destination_ip;
@@ -221,6 +230,7 @@ void Analyzer::add_empty_baseline_windows(std::uint64_t count) {
     }
 }
 
+// Valida e converte os seis campos de uma linha de entrada CSV.
 TrafficEvent parse_csv_event(const std::string& line) {
     std::string_view remaining(line);
     std::string_view fields[6];
@@ -254,6 +264,7 @@ TrafficEvent parse_csv_event(const std::string& line) {
     };
 }
 
+// Monta a representacao JSON de um alerta, escapando os campos textuais.
 std::string alert_to_json(const Alert& alert) {
     const char* scope = alert.scope == AlertScope::Source ? "source" : "destination";
     std::string json = "{\"window_start_unix_seconds\":" + std::to_string(alert.window_start_unix_seconds) +

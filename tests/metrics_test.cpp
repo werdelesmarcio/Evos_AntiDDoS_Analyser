@@ -11,6 +11,7 @@
 
 namespace {
 
+// Faz uma requisicao HTTP local e retorna a resposta completa do endpoint.
 std::string request_metrics(std::uint16_t port, const std::string& path) {
     const auto client_fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (client_fd < 0) {
@@ -49,6 +50,7 @@ std::string request_metrics(std::uint16_t port, const std::string& path) {
     return response;
 }
 
+// Confere contadores Prometheus, estado de captura e resposta para rotas ausentes.
 void test_prometheus_endpoint() {
     evos::Metrics metrics;
     metrics.observe_event({100, "192.0.2.1", "198.51.100.1", "TCP", 3, 300});

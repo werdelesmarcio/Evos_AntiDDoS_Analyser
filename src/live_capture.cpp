@@ -24,6 +24,7 @@ namespace {
 
 class PacketRing {
 public:
+    // Prepara o socket raw e associa o ring de recepcao a interface.
     explicit PacketRing(const std::string& interface_name) {
         const auto interface_index = if_nametoindex(interface_name.c_str());
         if (interface_index == 0) {
@@ -51,6 +52,7 @@ public:
     PacketRing(const PacketRing&) = delete;
     PacketRing& operator=(const PacketRing&) = delete;
 
+    // Libera o mapeamento e desativa o ring antes de fechar o socket.
     ~PacketRing() {
         release();
     }
@@ -73,6 +75,7 @@ public:
     }
 
 private:
+    // Configura os blocos TPACKET_V3 compartilhados com o kernel.
     void configure_ring() {
         int version = TPACKET_V3;
         if (setsockopt(socket_fd_, SOL_PACKET, PACKET_VERSION, &version, sizeof(version)) < 0) {
@@ -96,6 +99,7 @@ private:
         }
     }
 
+    // Filtra a captura para a interface solicitada.
     void bind_interface(unsigned int interface_index) {
         sockaddr_ll address{};
         address.sll_family = AF_PACKET;
@@ -106,6 +110,7 @@ private:
         }
     }
 
+    // Desfaz parcialmente ou totalmente os recursos adquiridos pelo construtor.
     void release() noexcept {
         if (ring_memory_ != nullptr) {
             munmap(ring_memory_, ring_length_);
@@ -125,6 +130,7 @@ private:
     tpacket_req3 request_{};
 };
 
+// Valida os limites do bloco, decodifica cada quadro e entrega eventos/alertas.
 void process_block(
     PacketRing& ring,
     tpacket_block_desc& block,
@@ -180,6 +186,7 @@ void process_block(
 
 }  // namespace
 
+// Aguarda blocos do kernel e os devolve ao ring depois do processamento.
 void capture_live_packets(
     const std::string& interface_name,
     Analyzer& analyzer,

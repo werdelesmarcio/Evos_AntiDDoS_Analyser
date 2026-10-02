@@ -16,6 +16,7 @@
 namespace evos {
 namespace {
 
+// Monta uma resposta HTTP completa com tamanho e tipo de conteudo.
 std::string http_response(int status, const char* reason, const char* content_type, const std::string& body) {
     return "HTTP/1.1 " + std::to_string(status) + " " + reason + "\r\n" +
         "Content-Type: " + content_type + "\r\n" +
@@ -23,6 +24,7 @@ std::string http_response(int status, const char* reason, const char* content_ty
         "Connection: close\r\n\r\n" + body;
 }
 
+// Envia a resposta inteira, repetindo operacoes interrompidas ou parciais.
 void send_response(int client_fd, const std::string& response) noexcept {
     std::size_t sent = 0;
     while (sent < response.size()) {

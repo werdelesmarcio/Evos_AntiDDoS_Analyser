@@ -11,6 +11,7 @@ namespace evos {
 using EventHandler = std::function<void(const TrafficEvent&)>;
 using AlertHandler = std::function<void(const Alert&)>;
 
+// Captura quadros passivamente na interface ate receber um pedido de parada.
 void capture_live_packets(
     const std::string& interface_name,
     Analyzer& analyzer,

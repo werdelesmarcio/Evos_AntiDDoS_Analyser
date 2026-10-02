@@ -62,6 +62,7 @@ std::vector<std::uint8_t> make_data_message() {
     return message;
 }
 
+// Aprende um template e usa-o para interpretar o proximo Data Set do exportador.
 void test_decodes_data_after_template_from_same_exporter() {
     evos::IpfixDecoder decoder;
     const auto template_message = make_template_message();
@@ -78,6 +79,7 @@ void test_decodes_data_after_template_from_same_exporter() {
     assert(events[0].bytes == 12000);
 }
 
+// Impede que um exportador reutilize templates de outro.
 void test_templates_are_isolated_by_exporter() {
     evos::IpfixDecoder decoder;
     const auto template_message = make_template_message();
@@ -86,6 +88,7 @@ void test_templates_are_isolated_by_exporter() {
     assert(decoder.decode(data_message, "192.0.2.253:2055", 1700000001).empty());
 }
 
+// Rejeita mensagens cujo tamanho declarado nao corresponde ao datagrama.
 void test_rejects_invalid_message_length() {
     evos::IpfixDecoder decoder;
     auto message = make_template_message();

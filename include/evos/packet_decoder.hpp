@@ -8,6 +8,7 @@
 
 namespace evos {
 
+// Decodifica Ethernet, VLAN, IPv4 ou IPv6; ignora quadros sem evento IP valido.
 std::optional<TrafficEvent> decode_ethernet_packet(
     std::span<const std::uint8_t> frame,
     std::uint64_t timestamp_unix_seconds,

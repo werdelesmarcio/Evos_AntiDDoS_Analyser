@@ -7,6 +7,7 @@
 
 namespace evos {
 
+// Escuta IPFIX/UDP e envia eventos e alertas aos callbacks fornecidos.
 void receive_ipfix(
     std::uint16_t port,
     Analyzer& analyzer,

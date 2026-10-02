@@ -6,16 +6,20 @@
 
 namespace evos {
 
+// Quadro capturado e seus metadados de tempo e tamanho original.
 struct CapturedPacket {
     std::uint64_t timestamp_unix_seconds;
     std::uint32_t wire_length;
     std::vector<std::uint8_t> bytes;
 };
 
+// Leitor de PCAP classico com suporte a ordem de bytes e precisao temporal.
 class PcapReader {
 public:
+    // Valida o cabecalho global antes de permitir a leitura dos registros.
     explicit PcapReader(std::istream& input);
 
+    // Le o proximo registro; retorna false ao chegar ao fim do arquivo.
     bool next(CapturedPacket& packet);
 
 private:

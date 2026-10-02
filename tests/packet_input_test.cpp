@@ -92,6 +92,7 @@ std::vector<std::uint8_t> vlan_ipv6_frame() {
     return frame;
 }
 
+// Le PCAP little-endian e confere os campos extraidos de um quadro IPv4.
 void test_reads_little_endian_pcap_and_decodes_ipv4() {
     std::stringstream input(make_pcap(ipv4_frame(), true, false), std::ios::in | std::ios::binary);
     evos::PcapReader reader(input);
@@ -110,6 +111,7 @@ void test_reads_little_endian_pcap_and_decodes_ipv4() {
     assert(!reader.next(packet));
 }
 
+// Lê PCAP big-endian com nanossegundos e decodifica VLAN com IPv6.
 void test_reads_big_endian_nanosecond_pcap_and_vlan_ipv6() {
     std::stringstream input(make_pcap(vlan_ipv6_frame(), false, true), std::ios::in | std::ios::binary);
     evos::PcapReader reader(input);
@@ -123,6 +125,7 @@ void test_reads_big_endian_nanosecond_pcap_and_vlan_ipv6() {
     assert(event->protocol == "TCP");
 }
 
+// Ignora quadros Ethernet que nao carregam datagramas IP suportados.
 void test_skips_non_ip_frames() {
     auto frame = ipv4_frame();
     frame[12] = 0x08;
@@ -130,6 +133,7 @@ void test_skips_non_ip_frames() {
     assert(!evos::decode_ethernet_packet(frame, 1200, static_cast<std::uint32_t>(frame.size())).has_value());
 }
 
+// Rejeita PCAP cujo tipo de enlace nao e Ethernet.
 void test_rejects_unsupported_link_type() {
     std::stringstream input(make_pcap(ipv4_frame(), true, false, 101), std::ios::in | std::ios::binary);
     bool rejected = false;

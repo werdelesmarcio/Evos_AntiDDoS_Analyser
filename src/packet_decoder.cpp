@@ -8,11 +8,13 @@
 namespace evos {
 namespace {
 
+// Le um campo Ethernet de 16 bits em ordem de rede.
 std::uint16_t read_u16(const std::uint8_t* bytes) {
     return static_cast<std::uint16_t>(bytes[0] << 8) |
         static_cast<std::uint16_t>(bytes[1]);
 }
 
+// Converte o numero de protocolo IP para um nome curto.
 std::string protocol_name(std::uint8_t protocol) {
     switch (protocol) {
     case 1: return "ICMP";
@@ -23,6 +25,7 @@ std::string protocol_name(std::uint8_t protocol) {
     }
 }
 
+// Formata enderecos e cria um evento para o pacote IP validado.
 std::optional<TrafficEvent> make_event(
     std::span<const std::uint8_t> frame,
     std::size_t address_offset,
@@ -50,6 +53,7 @@ std::optional<TrafficEvent> make_event(
 
 }  // namespace
 
+// Decodifica cabecalhos Ethernet e IP; quadros truncados ou nao suportados sao ignorados.
 std::optional<TrafficEvent> decode_ethernet_packet(
     std::span<const std::uint8_t> frame,
     std::uint64_t timestamp_unix_seconds,

@@ -11,8 +11,10 @@
 
 namespace evos {
 
+// Decodifica mensagens IPFIX e conserva templates por exportador e dominio.
 class IpfixDecoder {
 public:
+    // Aprende templates ou converte Data Sets em eventos normalizados.
     std::vector<TrafficEvent> decode(
         std::span<const std::uint8_t> message,
         const std::string& exporter,

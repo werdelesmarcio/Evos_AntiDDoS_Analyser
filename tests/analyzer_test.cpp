@@ -9,10 +9,12 @@
 
 namespace {
 
+// Cria um evento direcionado ao mesmo destino para facilitar os cenarios.
 evos::TrafficEvent event(std::uint64_t timestamp, std::string source, std::uint64_t packets, std::uint64_t bytes) {
     return {timestamp, std::move(source), "203.0.113.10", "TCP", packets, bytes};
 }
 
+// Confere a conversao CSV e a rejeicao de contadores negativos.
 void test_csv_parser() {
     const auto parsed = evos::parse_csv_event("1001,198.51.100.1,203.0.113.10,TCP,12,1400");
     assert(parsed.timestamp_unix_seconds == 1001);
@@ -29,6 +31,7 @@ void test_csv_parser() {
     assert(rejected);
 }
 
+// Verifica agregacao entre eventos e alerta ao exceder pacotes por fluxo.
 void test_aggregation_and_packet_threshold() {
     evos::Analyzer analyzer({10, 10, 1000, 1000, 100000, 5, 3.0});
     assert(analyzer.consume(event(1001, "198.51.100.1", 6, 400)).empty());
@@ -47,6 +50,7 @@ void test_aggregation_and_packet_threshold() {
     assert(analyzer.finish().empty());
 }
 
+// Confere limite de bytes e escape de caracteres especiais no JSON.
 void test_byte_threshold_and_json_escaping() {
     evos::Analyzer analyzer({10, 100, 500, 1000, 100000, 5, 3.0});
     assert(analyzer.consume(event(2000, "198.51.100.\"1", 1, 501)).empty());
@@ -57,6 +61,7 @@ void test_byte_threshold_and_json_escaping() {
     assert(analyzer.finish().empty());
 }
 
+// Garante que eventos atrasados nao alterem janelas ja processadas.
 void test_rejects_out_of_order_events() {
     evos::Analyzer analyzer({10, 100, 1000, 1000, 100000, 5, 3.0});
     (void)analyzer.consume(event(1010, "198.51.100.1", 1, 100));
@@ -69,6 +74,7 @@ void test_rejects_out_of_order_events() {
     assert(rejected);
 }
 
+// Detecta excesso agregado por destino mesmo com varias origens.
 void test_detects_distributed_destination_flood() {
     evos::Analyzer analyzer({10, 10, 1000, 10, 1000, 5, 3.0});
     assert(analyzer.consume(event(3001, "198.51.100.1", 6, 400)).empty());
@@ -84,6 +90,7 @@ void test_detects_distributed_destination_flood() {
     assert(evos::alert_to_json(alerts.front()).find("\"source_ip\":null") != std::string::npos);
 }
 
+// Detecta picos contra o baseline sem incorporar a janela suspeita.
 void test_detects_spike_against_prior_baseline_without_learning_attack() {
     evos::Analyzer analyzer({10, 100000, 10000000, 100000, 10000000, 3, 2.0});
     assert(analyzer.consume(event(0, "198.51.100.1", 100, 1000)).empty());

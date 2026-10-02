@@ -21,10 +21,12 @@ namespace {
 
 volatile std::sig_atomic_t stop_requested = 0;
 
+// Sinaliza aos loops de captura que devem encerrar com seguranca.
 void request_stop(int) {
     stop_requested = 1;
 }
 
+// Lista os modos de entrada, limites e opcoes aceitos pelo executavel.
 void print_usage(std::ostream& output) {
     output << "Uso: evos-analyzer (--input <arquivo.csv|-> | --pcap <arquivo.pcap|-> | --interface <nome> | --ipfix-port <porta>) [opcoes]\n"
            << "\n"
@@ -51,6 +53,7 @@ void print_usage(std::ostream& output) {
            << "  --help                  Exibe esta ajuda\n";
 }
 
+// Converte uma opcao inteira positiva e associa erros ao nome da opcao.
 std::uint64_t parse_option_value(std::string_view value, const std::string& option) {
     std::uint64_t parsed = 0;
     const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), parsed);
@@ -60,6 +63,7 @@ std::uint64_t parse_option_value(std::string_view value, const std::string& opti
     return parsed;
 }
 
+// Converte o multiplicador do baseline e rejeita valores nao finitos ou nulos.
 double parse_sigma(std::string_view value) {
     double parsed = 0;
     const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), parsed);
@@ -79,6 +83,7 @@ struct Options {
     evos::Thresholds thresholds;
 };
 
+// Interpreta argumentos e exige exatamente um modo de entrada.
 Options parse_options(int argc, char* argv[]) {
     Options options;
     for (int index = 1; index < argc; ++index) {
@@ -134,6 +139,7 @@ Options parse_options(int argc, char* argv[]) {
     return options;
 }
 
+// Registra metricas e imprime cada alerta em JSON Lines.
 void write_alerts(const std::vector<evos::Alert>& alerts, evos::Metrics& metrics) {
     for (const auto& alert : alerts) {
         metrics.observe_alert(alert);
@@ -143,6 +149,7 @@ void write_alerts(const std::vector<evos::Alert>& alerts, evos::Metrics& metrics
 
 }  // namespace
 
+// Inicializa os servicos e encaminha cada fonte de dados ao analisador.
 int main(int argc, char* argv[]) {
     try {
         const auto options = parse_options(argc, argv);

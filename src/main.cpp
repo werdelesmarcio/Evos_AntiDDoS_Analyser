@@ -1,4 +1,5 @@
 #include "evos/analyzer.hpp"
+#include "evos/ipfix_receiver.hpp"
 #include "evos/live_capture.hpp"
 #include "evos/metrics.hpp"
 #include "evos/packet_decoder.hpp"
@@ -25,17 +26,19 @@ void request_stop(int) {
 }
 
 void print_usage(std::ostream& output) {
-    output << "Uso: evos-analyzer (--input <arquivo.csv|-> | --pcap <arquivo.pcap|-> | --interface <nome>) [opcoes]\n"
+    output << "Uso: evos-analyzer (--input <arquivo.csv|-> | --pcap <arquivo.pcap|-> | --interface <nome> | --ipfix-port <porta>) [opcoes]\n"
            << "\n"
            << "CSV: timestamp_unix_seconds,source_ip,destination_ip,protocol,packets,bytes\n"
            << "Os eventos devem estar ordenados pelo timestamp. Uma linha de cabecalho e aceita.\n"
            << "PCAP: formato classico, link Ethernet; decodifica IPv4, IPv6 e VLAN.\n"
            << "Captura ao vivo: AF_PACKET/TPACKET_V3 passivo; requer CAP_NET_RAW e encerra com Ctrl+C.\n"
+           << "IPFIX: NetFlow v10 por UDP; aguarda templates e fluxos, usando o timestamp de recebimento.\n"
            << "\n"
            << "Opcoes:\n"
            << "  --input <caminho>       Arquivo CSV ou '-' para stdin\n"
            << "  --pcap <caminho>        Captura PCAP offline ou '-' para stdin\n"
            << "  --interface <nome>      Captura ao vivo na interface de rede\n"
+           << "  --ipfix-port <porta>    Escuta IPFIX/UDP em todas as interfaces (padrao: 2055)\n"
            << "  --metrics-address <ip:porta>  Exportador Prometheus (ex: 127.0.0.1:9108)\n"
            << "  --window-seconds <n>    Duracao da janela (padrao: 10)\n"
            << "  --max-packets <n>       Limite por origem/destino/janela (padrao: 10000)\n"
@@ -70,6 +73,8 @@ struct Options {
     std::string input_path;
     std::string pcap_path;
     std::string interface_name;
+    std::uint16_t ipfix_port = 2055;
+    bool receive_ipfix = false;
     std::string metrics_address;
     evos::Thresholds thresholds;
 };
@@ -92,6 +97,13 @@ Options parse_options(int argc, char* argv[]) {
             options.pcap_path = value;
         } else if (argument == "--interface") {
             options.interface_name = value;
+        } else if (argument == "--ipfix-port") {
+            const auto port = parse_option_value(value, argument);
+            if (port > 65535) {
+                throw std::invalid_argument("--ipfix-port deve estar entre 1 e 65535");
+            }
+            options.ipfix_port = static_cast<std::uint16_t>(port);
+            options.receive_ipfix = true;
         } else if (argument == "--metrics-address") {
             options.metrics_address = value;
         } else if (argument == "--window-seconds") {
@@ -114,9 +126,10 @@ Options parse_options(int argc, char* argv[]) {
     }
     const auto input_modes = static_cast<unsigned int>(!options.input_path.empty()) +
         static_cast<unsigned int>(!options.pcap_path.empty()) +
-        static_cast<unsigned int>(!options.interface_name.empty());
+        static_cast<unsigned int>(!options.interface_name.empty()) +
+        static_cast<unsigned int>(options.receive_ipfix);
     if (input_modes != 1) {
-        throw std::invalid_argument("provide exactly one input mode: --input, --pcap, or --interface");
+        throw std::invalid_argument("provide exactly one input mode: --input, --pcap, --interface, or --ipfix-port");
     }
     return options;
 }
@@ -135,10 +148,11 @@ int main(int argc, char* argv[]) {
         const auto options = parse_options(argc, argv);
         const bool reading_pcap = !options.pcap_path.empty();
         const bool capturing_live = !options.interface_name.empty();
+        const bool receiving_ipfix = options.receive_ipfix;
         const auto& input_path = reading_pcap ? options.pcap_path : options.input_path;
         std::ifstream file;
         std::istream* input = &std::cin;
-        if (!capturing_live && input_path != "-") {
+        if (!capturing_live && !receiving_ipfix && input_path != "-") {
             file.open(input_path, reading_pcap ? std::ios::binary : std::ios::in);
             if (!file) {
                 throw std::runtime_error("could not open input file: " + input_path);
@@ -166,6 +180,24 @@ int main(int argc, char* argv[]) {
                     metrics.observe_alert(alert);
                     std::cout << evos::alert_to_json(alert) << '\n';
                 });
+            } catch (...) {
+                metrics.set_capture_active(false);
+                throw;
+            }
+            metrics.set_capture_active(false);
+        } else if (receiving_ipfix) {
+            std::signal(SIGINT, request_stop);
+            std::signal(SIGTERM, request_stop);
+            metrics.set_capture_active(true);
+            try {
+                evos::receive_ipfix(options.ipfix_port, analyzer, stop_requested,
+                    [&metrics](const evos::TrafficEvent& event) {
+                        metrics.observe_event(event);
+                    },
+                    [&metrics](const evos::Alert& alert) {
+                        metrics.observe_alert(alert);
+                        std::cout << evos::alert_to_json(alert) << '\n';
+                    });
             } catch (...) {
                 metrics.set_capture_active(false);
                 throw;
